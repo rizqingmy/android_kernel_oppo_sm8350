@@ -15,14 +15,12 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential bc bison flex libssl-dev libelf-dev git zip libncurses5-dev
+          sudo apt-get install -y -qq build-essential bc bison flex libssl-dev libelf-dev git zip libncurses5-dev wget curl
 
       - name: Setup Android Clang Toolchain
         run: |
-          mkdir -p toolchain
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r487747c.tar.gz -O clang.tar.gz
-          tar -xzf clang.tar.gz -C toolchain/
-          rm -f clang.tar.gz
+          echo "==> Mengambil Proton Clang 13 (AOSP Clang)..."
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git toolchain
 
       - name: Checkout Sukisu Kernel Source
         uses: actions/checkout@v4
@@ -33,10 +31,8 @@ jobs:
       - name: Auto-Patch Uname Spoof to 5.15.136
         run: |
           cd kernel_src
-          echo "==> Menggantikan 5.10.248 kepada 5.15.136 dalam kernel/sys.c..."
+          echo "==> Sedang patch uname spoof kepada 5.15.136..."
           sed -i 's/5.10.248/5.15.136/g' kernel/sys.c
-          
-          # Pengesahan perubahan
           grep -n "5.15.136" kernel/sys.c
 
       - name: Compile Kernel Image & DTBO
