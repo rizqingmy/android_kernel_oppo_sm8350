@@ -6,8 +6,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 180
-
     steps:
       - name: Free Disk Space
         run: |
@@ -17,39 +15,44 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            build-essential bc bison flex libssl-dev libelf-dev git zip \
-            libncurses5-dev wget curl
+          sudo apt-get install -y -qq build-essential bc bison flex libssl-dev libelf-dev git zip libncurses5-dev wget curl
 
       - name: Setup Android Clang Toolchain
         run: |
           echo "==> Mengambil Proton Clang..."
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git toolchain
 
-      - name: Checkout Sukisu Kernel Source
+      - name: Checkout Sukisu Kernel Source & Submodules
         uses: actions/checkout@v4
         with:
           ref: sukisu_bpf
           path: kernel_src
+          submodules: recursive
+          fetch-depth: 1
 
-      - name: Remove missing SukiSU Kconfig include if not present
+      - name: Fix Missing Kconfig & Compiler Scripts
         run: |
           cd kernel_src
-          if [ -f init/Kconfig ]; then
-            echo "==> Membersihkan rujukan Kconfig yang tiada..."
-            sed -i '/source "kernel\/sched_assist\/Kconfig"/d' init/Kconfig || true
-            sed -i '/kernel\/sched_assist\/Kconfig/d' init/Kconfig || true
-          fi
+          echo "==> Membaiki rujukan Kconfig yang hilang..."
+          
+          # Hasilkan fail kosong bagi fail Kconfig modul vendor yang hilang
+          mkdir -p kernel/tuning kernel/sched_assist
+          touch kernel/tuning/Kconfig
+          touch kernel/sched_assist/Kconfig
 
-          if [ -f init/Kconfig ]; then
-            grep -n "sched_assist" init/Kconfig || true
-          fi
+          # Padam rujukan source jika masih menyebabkan konflik
+          sed -i '/source "kernel\/tuning\/Kconfig"/d' init/Kconfig || true
+          sed -i '/source "kernel\/sched_assist\/Kconfig"/d' init/Kconfig || true
+
+          echo "==> Mengelakkan ralat gcc-version.sh..."
+          # Pastikan scripts/gcc-version.sh memulangkan nilai lalai jika dipanggil tanpa GCC fizikal
+          sed -i 's/printf "%d%02d%02d\\n" "$MAJOR" "$MINOR" "$PATCHLEVEL"/printf "0\\n"/' scripts/gcc-version.sh || true
 
       - name: Inspect and Patch Uname Spoof
         run: |
           cd kernel_src
           echo "==> Menyemak dan menampal spoof 5.15.136..."
-          sed -i 's/5.10\.[0-9]*/5.15.136/g' kernel/sys.c || true
+          sed -i 's/5.10.[0-9]*/5.15.136/g' kernel/sys.c || true
           sed -i 's/5.10.248/5.15.136/g' kernel/sys.c || true
 
           if ! grep -q "5.15.136" kernel/sys.c; then
@@ -66,26 +69,24 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export CC=clang
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
           mkdir -p out
 
-          echo "==> Menjana konfigurasi kernel..."
-          DEFCONFIG_PATH=$(find arch/arm64/configs -iname "*lahaina*perf*" | head -n 1)
-
-          if [ -n "$DEFCONFIG_PATH" ]; then
-            CONFIG_NAME=$(basename "$DEFCONFIG_PATH")
-            echo "Menggunakan defconfig: $CONFIG_NAME"
-            make O=out "$CONFIG_NAME"
+          echo "==> Menjana defconfig..."
+          if [ -f "arch/arm64/configs/vendor/lahaina-perf_defconfig" ]; then
+            make O=out CC=clang LLVM=1 LLVM_IAS=1 vendor/lahaina-perf_defconfig
+          elif [ -f "arch/arm64/configs/lahaina-perf_defconfig" ]; then
+            make O=out CC=clang LLVM=1 LLVM_IAS=1 lahaina-perf_defconfig
           else
-            echo "Menggunakan defconfig fallback..."
-            make O=out defconfig
+            make O=out CC=clang LLVM=1 LLVM_IAS=1 $(find arch/arm64/configs -name "*lahaina*perf*" -printf "%f\n" | head -n 1)
           fi
 
-          echo "==> Memulakan kompilasi..."
-          make -j"$(nproc --all)" O=out LLVM=1 LLVM_IAS=1 Image dtbo.img
+          echo "==> Memulakan kompilasi binari..."
+          make -j$(nproc --all) O=out \
+            CC=clang \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            Image dtbo.img
 
       - name: Package with AnyKernel3
         run: |
