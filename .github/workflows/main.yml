@@ -1,4 +1,4 @@
-name: Auto-Patch & Build SukiSU Kernel
+name: Auto-Patch & Build SukiSU Kernel (Rizqing)
 
 on:
   workflow_dispatch:
@@ -22,30 +22,35 @@ jobs:
           echo "==> Mengambil Proton Clang..."
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git toolchain
 
-      - name: Checkout Sukisu Kernel Source & Submodules
+      - name: Checkout Sukisu Kernel Source
         uses: actions/checkout@v4
         with:
           ref: sukisu_bpf
           path: kernel_src
-          submodules: recursive
           fetch-depth: 1
 
-      - name: Fix Missing Kconfig & Compiler Scripts
+      - name: Setup SukiSU Ultra & Fix Missing Kconfigs
         run: |
           cd kernel_src
-          echo "==> Membaiki rujukan Kconfig yang hilang..."
-          
-          # Hasilkan fail kosong bagi fail Kconfig modul vendor yang hilang
+          echo "==> Menguruskan submodule SukiSU Ultra..."
+          git submodule deinit -f --all || true
+          rm -rf .git/modules/KernelSU || true
+          rm -rf KernelSU
+
+          # Klon kod sumber SukiSU rasmi
+          git clone --depth=1 https://github.com/ShirkNeko/SukiSU.git KernelSU || \
+          git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git KernelSU
+
+          echo "==> Membaiki rujukan Kconfig modul vendor..."
           mkdir -p kernel/tuning kernel/sched_assist
           touch kernel/tuning/Kconfig
           touch kernel/sched_assist/Kconfig
 
-          # Padam rujukan source jika masih menyebabkan konflik
+          # Padam baris rujukan yang menyebabkan parser terhenti
           sed -i '/source "kernel\/tuning\/Kconfig"/d' init/Kconfig || true
           sed -i '/source "kernel\/sched_assist\/Kconfig"/d' init/Kconfig || true
 
-          echo "==> Mengelakkan ralat gcc-version.sh..."
-          # Pastikan scripts/gcc-version.sh memulangkan nilai lalai jika dipanggil tanpa GCC fizikal
+          # Elakkan ralat gcc-version.sh
           sed -i 's/printf "%d%02d%02d\\n" "$MAJOR" "$MINOR" "$PATCHLEVEL"/printf "0\\n"/' scripts/gcc-version.sh || true
 
       - name: Inspect and Patch Uname Spoof
@@ -70,6 +75,10 @@ jobs:
           export SUBARCH=arm64
           export CC=clang
 
+          # Label identiti binaan
+          export KBUILD_BUILD_USER="rizqing"
+          export KBUILD_BUILD_HOST="lemonadep"
+
           mkdir -p out
 
           echo "==> Menjana defconfig..."
@@ -81,7 +90,11 @@ jobs:
             make O=out CC=clang LLVM=1 LLVM_IAS=1 $(find arch/arm64/configs -name "*lahaina*perf*" -printf "%f\n" | head -n 1)
           fi
 
-          echo "==> Memulakan kompilasi binari..."
+          echo "==> Mengaktifkan SukiSU dan penyesuaian nama..."
+          echo 'CONFIG_LOCALVERSION="-Rizqing-BPF"' >> out/.config
+          echo "CONFIG_KSU=y" >> out/.config
+
+          echo "==> Memulakan kompilasi..."
           make -j$(nproc --all) O=out \
             CC=clang \
             LLVM=1 \
@@ -96,10 +109,10 @@ jobs:
           sed -i 's/device.name1=.*/device.name1=lemonadep/' AK3/anykernel.sh
           sed -i 's/device.name2=.*/device.name2=OnePlus9Pro/' AK3/anykernel.sh
           sed -i 's/is_slot_device=.*/is_slot_device=1/' AK3/anykernel.sh
-          cd AK3 && zip -r9 ../Kernel-SukiSU-5.15-Patched.zip * -x .git README.md
+          cd AK3 && zip -r9 ../Kernel-Rizqing-SukiSU-5.15-OnePlus9Pro.zip * -x .git README.md
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Patched_SukiSU_Kernel
-          path: Kernel-SukiSU-5.15-Patched.zip
+          name: Kernel-RizqingOwO-SukiSU-OnePlus9Pro
+          path: Kernel-RizqingOwO-SukiSU-5.15-OnePlus9Pro.zip
