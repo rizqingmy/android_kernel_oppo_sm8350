@@ -19,7 +19,7 @@ jobs:
 
       - name: Setup Android Clang Toolchain
         run: |
-          echo "==> Mengambil Proton Clang 13 (AOSP Clang)..."
+          echo "==> Mengambil Proton Clang..."
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git toolchain
 
       - name: Checkout Sukisu Kernel Source
@@ -28,12 +28,27 @@ jobs:
           ref: sukisu_bpf
           path: kernel_src
 
-      - name: Auto-Patch Uname Spoof to 5.15.136
+      - name: Inspect and Patch Uname Spoof
         run: |
           cd kernel_src
-          echo "==> Sedang patch uname spoof kepada 5.15.136..."
-          sed -i 's/5.10.248/5.15.136/g' kernel/sys.c
-          grep -n "5.15.136" kernel/sys.c
+          echo "==> Menyemak kandungan hook uname semasa..."
+          grep -rn "override_release" kernel/ || true
+          grep -rn "5.10" kernel/ || true
+
+          # Gantikan sebarang padanan 5.10.x atau suntik 5.15.136 jika ada
+          sed -i 's/5.10.[0-9]*/5.15.136/g' kernel/sys.c || true
+          sed -i 's/5.10.248/5.15.136/g' kernel/sys.c || true
+
+          # Suntikan selamat pada baris pengembalian uname sekiranya tiada hook
+          if ! grep -q "5.15.136" kernel/sys.c; then
+            echo "Menyuntik patch terus ke dalam sys_newuname..."
+            sed -i '/copy_to_user(name, &tmp, sizeof(tmp))/i \
+            if (strcmp(current->comm, "bpfloader") == 0 || strcmp(current->comm, "netbpfload") == 0 || strcmp(current->comm, "netd") == 0) { \
+                strncpy(tmp.release, "5.15.136", sizeof(tmp.release)); \
+            }' kernel/sys.c || true
+          fi
+
+          echo "Penyuntikan selesai."
 
       - name: Compile Kernel Image & DTBO
         run: |
